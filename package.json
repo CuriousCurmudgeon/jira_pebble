@@ -1,0 +1,34 @@
+{
+  "name": "jira-pebble",
+  "author": "Brian Meeker",
+  "version": "0.1.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "@rebble/clay": "^1.1.0"
+  },
+  "pebble": {
+    "displayName": "Jira",
+    "uuid": "250203db-957c-4b1f-9116-075ea289d4c5",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery"
+    ],
+    "capabilities": [
+      "configurable"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": [
+      "DisplayName",
+      "Error"
+    ],
+    "resources": {
+      "media": []
+    }
+  }
+}
