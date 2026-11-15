@@ -2,6 +2,7 @@
   "name": "jira-pebble",
   "author": "Brian Meeker",
   "version": "0.1.0",
+  "license": "MIT",
   "keywords": [
     "pebble-app"
   ],

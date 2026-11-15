@@ -85,3 +85,9 @@ If your phone and computer are on the same Wi-Fi, you can instead turn on *Use L
 authentication, so use it only on a trusted network.
 
 `pebble logs --cloudpebble` (or `--phone <IP>`) shows the app's logs.
+
+## License
+
+MIT; see [LICENSE](LICENSE). This doesn't cover `.claude/skills/pebble-watchface/`, which is copied from
+[coredevices/pebble-watchface-agent-skill](https://github.com/coredevices/pebble-watchface-agent-skill) and has no
+license of its own.
