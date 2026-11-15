@@ -188,26 +188,54 @@ function searchAll(settings, jql, fields, maxIssues, callback) {
   fetchPage(null);
 }
 
-// Calls back with the active sprint of the board and its issues in rank order.
-function getSprintIssues(settings, board, maxIssues, callback) {
+// Calls back with the board's columns in order, each with a name and the IDs
+// of the statuses mapped to it.
+function getColumns(settings, boardId, callback) {
+  var path = '/rest/agile/1.0/board/' + boardId + '/configuration';
+  request(settings, 'GET', path, function(error, data) {
+    if (error) {
+      callback(error);
+      return;
+    }
+    var columns = (data && data.columnConfig && data.columnConfig.columns) || [];
+    callback(null, columns.map(function(column) {
+      return {
+        name: column.name,
+        statusIds: (column.statuses || []).map(function(status) {
+          return String(status.id);
+        })
+      };
+    }));
+  });
+}
+
+// Calls back with the board's columns, its active sprint and the sprint's
+// issues in rank order.
+function getSprint(settings, board, maxIssues, callback) {
   getBoardId(settings, board, function(error, boardId) {
     if (error) {
       callback(error);
       return;
     }
-    getActiveSprint(settings, boardId, function(error, sprint) {
-      if (error || !sprint) {
-        callback(error || 'No active sprint');
+    getColumns(settings, boardId, function(error, columns) {
+      if (error) {
+        callback(error);
         return;
       }
-      searchAll(settings, 'sprint = ' + sprint.id + ' ORDER BY Rank ASC',
-        'summary,status,priority,assignee', maxIssues, function(error, issues) {
-          callback(error, sprint, issues);
-        });
+      getActiveSprint(settings, boardId, function(error, sprint) {
+        if (error || !sprint) {
+          callback(error || 'No active sprint');
+          return;
+        }
+        searchAll(settings, 'sprint = ' + sprint.id + ' ORDER BY Rank ASC',
+          'summary,status,priority,assignee', maxIssues, function(error, issues) {
+            callback(error, columns, sprint, issues);
+          });
+      });
     });
   });
 }
 
 module.exports = {
-  getSprintIssues: getSprintIssues
+  getSprint: getSprint
 };

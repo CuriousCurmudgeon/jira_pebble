@@ -1,10 +1,12 @@
 #include <pebble.h>
 
-// The phone sends at most this many issues per list; see MAX_ISSUES in index.js.
+// The phone sends at most this many issues per list and this many columns;
+// see MAX_ISSUES and MAX_COLUMNS in index.js.
 #define MAX_ISSUES 50
+#define MAX_COLUMNS 12
 
 #define HEADER_HEIGHT 26
-#define CATEGORY_ROW_HEIGHT 44
+#define COLUMN_ROW_HEIGHT 40
 #define ISSUE_ROW_HEIGHT 46
 #define STRIPE_WIDTH 6
 #define ROW_PADDING 6
@@ -18,10 +20,14 @@ typedef enum {
   CategoryToDo = 0,
   CategoryInProgress = 1,
   CategoryDone = 2,
-  CategoryCount = 3,
 } IssueCategory;
 
-static const char *const CATEGORY_NAMES[CategoryCount] = {"To Do", "In Progress", "Done"};
+// A column of the board. The name's size matches LIMITS in index.js.
+typedef struct {
+  char name[24];
+  int issue_count;
+  uint8_t category;
+} Column;
 
 // String sizes match LIMITS in index.js.
 typedef struct {
@@ -38,21 +44,25 @@ typedef struct {
 static bool s_sprint_loaded;
 static char s_sprint_name[32];
 static int s_days_left;
-static int s_category_counts[CategoryCount];
+static Column s_columns[MAX_COLUMNS];
+// How many columns the board has, and how many of them have arrived.
+static int s_column_total;
+static int s_column_count;
 
-// The open list: one category's issues.
-static int s_list_category;
-// How many issues the category holds; -1 until the phone says.
+// The open list: one column's issues.
+static int s_list_column;
+// How many issues the column holds; -1 until the phone says.
 static int s_list_total = -1;
 static Issue s_issues[MAX_ISSUES];
 static int s_issue_count;
 
 static Window *s_home_window;
 static TextLayer *s_home_header_layer;
-static MenuLayer *s_home_menu_layer;
+static TextLayer *s_sprint_name_layer;
 static TextLayer *s_days_left_layer;
+static MenuLayer *s_home_menu_layer;
 static TextLayer *s_home_message_layer;
-static char s_days_left_text[32];
+static char s_days_left_text[24];
 static char s_home_message[128];
 
 static Window *s_list_window;
@@ -187,7 +197,7 @@ static void list_window_update(void) {
   if (!window_stack_contains_window(s_list_window)) {
     return;
   }
-  const char *name = CATEGORY_NAMES[s_list_category];
+  const char *name = s_columns[s_list_column].name;
   if (s_list_total < 0) {
     snprintf(s_list_header_text, sizeof(s_list_header_text), "%s", name);
   } else {
@@ -260,7 +270,7 @@ static void list_window_load(Window *window) {
 
   s_list_header_layer = add_header_layer(root, bounds);
   text_layer_set_background_color(s_list_header_layer,
-                                  category_dark_color(s_list_category));
+                                  category_dark_color(s_columns[s_list_column].category));
 
   GRect body = GRect(0, HEADER_HEIGHT, bounds.size.w, bounds.size.h - HEADER_HEIGHT);
   s_list_menu_layer = menu_layer_create(body);
@@ -287,76 +297,74 @@ static void list_window_unload(Window *window) {
   text_layer_destroy(s_list_message_layer);
 }
 
-static void open_category(int category) {
-  s_list_category = category;
+static void open_column(int column) {
+  s_list_column = column;
   s_list_total = -1;
   s_issue_count = 0;
   window_stack_push(s_list_window, true);
 
   DictionaryIterator *iter;
   if (app_message_outbox_begin(&iter) == APP_MSG_OK) {
-    dict_write_int32(iter, MESSAGE_KEY_RequestCategory, category);
+    dict_write_int32(iter, MESSAGE_KEY_RequestColumn, column);
     app_message_outbox_send();
   }
 }
 
 // ---------------------------------------------------------------------------
-// Home window: the sprint's categories
+// Home window: the board's columns
 
 static void home_window_update(void) {
-  text_layer_set_text(s_home_header_layer, s_sprint_loaded ? s_sprint_name : "Sprint");
+  text_layer_set_text(s_sprint_name_layer, s_sprint_loaded ? s_sprint_name : "Sprint");
 
-  if (s_days_left > 1) {
-    snprintf(s_days_left_text, sizeof(s_days_left_text), "%d days left", s_days_left);
-  } else if (s_days_left == 1) {
-    snprintf(s_days_left_text, sizeof(s_days_left_text), "1 day left");
-  } else if (s_days_left == 0) {
-    snprintf(s_days_left_text, sizeof(s_days_left_text), "Ends today");
+  if (s_days_left > 0) {
+    snprintf(s_days_left_text, sizeof(s_days_left_text), "%dd left", s_days_left);
   } else {
-    snprintf(s_days_left_text, sizeof(s_days_left_text), "Ended");
+    snprintf(s_days_left_text, sizeof(s_days_left_text), s_days_left == 0 ? "Today" : "Ended");
   }
   text_layer_set_text(s_days_left_layer, s_days_left_text);
-  text_layer_set_text_color(s_days_left_layer, s_days_left <= DAYS_LEFT_WARNING
-                                                   ? GColorDarkCandyAppleRed
-                                                   : GColorDarkGray);
+  layer_set_hidden(text_layer_get_layer(s_days_left_layer), !s_sprint_loaded);
+
+  // The header turns red near the end of the sprint.
+  bool ending = s_sprint_loaded && s_days_left <= DAYS_LEFT_WARNING;
+  GColor header_color = ending ? GColorDarkCandyAppleRed : GColorCobaltBlue;
+  text_layer_set_background_color(s_home_header_layer, header_color);
 
   layer_set_hidden(menu_layer_get_layer(s_home_menu_layer), !s_sprint_loaded);
-  layer_set_hidden(text_layer_get_layer(s_days_left_layer), !s_sprint_loaded);
   layer_set_hidden(text_layer_get_layer(s_home_message_layer), s_sprint_loaded);
   text_layer_set_text(s_home_message_layer, s_home_message[0] ? s_home_message : "Loading...");
   menu_layer_reload_data(s_home_menu_layer);
 }
 
 static uint16_t home_get_num_rows(MenuLayer *menu_layer, uint16_t section, void *context) {
-  return CategoryCount;
+  return s_column_count;
 }
 
 static int16_t home_get_cell_height(MenuLayer *menu_layer, MenuIndex *index, void *context) {
-  return CATEGORY_ROW_HEIGHT;
+  return COLUMN_ROW_HEIGHT;
 }
 
 static void home_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index,
                           void *context) {
-  int category = index->row;
+  const Column *column = &s_columns[index->row];
   GRect bounds = layer_get_bounds(cell_layer);
 
-  graphics_context_set_fill_color(ctx, category_color(category));
+  graphics_context_set_fill_color(ctx, category_color(column->category));
   graphics_fill_rect(ctx, GRect(0, 0, STRIPE_WIDTH, bounds.size.h), 0, GCornerNone);
 
   int left = STRIPE_WIDTH + ROW_PADDING;
   int width = bounds.size.w - left - ROW_PADDING;
+  int count_width = 36;
   graphics_context_set_text_color(ctx, menu_cell_layer_is_highlighted(cell_layer)
                                            ? GColorWhite
                                            : GColorBlack);
-  graphics_draw_text(ctx, CATEGORY_NAMES[category],
-                     fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-                     GRect(left, 4, width, 30), GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentLeft, NULL);
+  graphics_draw_text(ctx, column->name, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                     GRect(left, 3, width - count_width, 30),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   char count[8];
-  snprintf(count, sizeof(count), "%d", s_category_counts[category]);
+  snprintf(count, sizeof(count), "%d", column->issue_count);
   graphics_draw_text(ctx, count, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-                     GRect(left, 1, width, 32), GTextOverflowModeTrailingEllipsis,
+                     GRect(left, 0, width, 32), GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentRight, NULL);
 
   graphics_context_set_stroke_color(ctx, GColorLightGray);
@@ -366,8 +374,8 @@ static void home_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
 
 static void home_select(MenuLayer *menu_layer, MenuIndex *index, void *context) {
   // The menu still takes clicks while it's hidden behind a message.
-  if (s_sprint_loaded) {
-    open_category(index->row);
+  if (s_sprint_loaded && index->row < s_column_count) {
+    open_column(index->row);
   }
 }
 
@@ -375,27 +383,33 @@ static void home_window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
+  // A colored bar, with the sprint name on its left and the days left on its right.
   s_home_header_layer = add_header_layer(root, bounds);
-  text_layer_set_background_color(s_home_header_layer, GColorCobaltBlue);
 
-  int menu_height = CategoryCount * CATEGORY_ROW_HEIGHT;
-  s_home_menu_layer = menu_layer_create(GRect(0, HEADER_HEIGHT, bounds.size.w, menu_height));
+  int days_width = 60;
+  s_sprint_name_layer = add_header_layer(root, bounds);
+  layer_set_frame(text_layer_get_layer(s_sprint_name_layer),
+                  GRect(MARGIN, 0, bounds.size.w - days_width - MARGIN, HEADER_HEIGHT));
+  text_layer_set_background_color(s_sprint_name_layer, GColorClear);
+  text_layer_set_text_alignment(s_sprint_name_layer, GTextAlignmentLeft);
+
+  s_days_left_layer = add_header_layer(root, bounds);
+  layer_set_frame(text_layer_get_layer(s_days_left_layer),
+                  GRect(bounds.size.w - days_width, 0, days_width - MARGIN, HEADER_HEIGHT));
+  text_layer_set_background_color(s_days_left_layer, GColorClear);
+  text_layer_set_text_alignment(s_days_left_layer, GTextAlignmentRight);
+
+  GRect body = GRect(0, HEADER_HEIGHT, bounds.size.w, bounds.size.h - HEADER_HEIGHT);
+  s_home_menu_layer = menu_layer_create(body);
   menu_layer_set_callbacks(s_home_menu_layer, NULL, (MenuLayerCallbacks) {
     .get_num_rows = home_get_num_rows,
     .get_cell_height = home_get_cell_height,
     .draw_row = home_draw_row,
     .select_click = home_select,
   });
-  menu_layer_pad_bottom_enable(s_home_menu_layer, false);
   menu_layer_set_highlight_colors(s_home_menu_layer, GColorOxfordBlue, GColorWhite);
   menu_layer_set_click_config_onto_window(s_home_menu_layer, window);
   layer_add_child(root, menu_layer_get_layer(s_home_menu_layer));
-
-  int days_top = HEADER_HEIGHT + menu_height + 12;
-  s_days_left_layer = add_text_layer(root, GRect(MARGIN, days_top, bounds.size.w - 2 * MARGIN,
-                                                 30),
-                                     FONT_KEY_GOTHIC_24_BOLD);
-  text_layer_set_text_alignment(s_days_left_layer, GTextAlignmentCenter);
 
   s_home_message_layer = add_message_layer(root, bounds);
 
@@ -404,8 +418,9 @@ static void home_window_load(Window *window) {
 
 static void home_window_unload(Window *window) {
   text_layer_destroy(s_home_header_layer);
-  menu_layer_destroy(s_home_menu_layer);
+  text_layer_destroy(s_sprint_name_layer);
   text_layer_destroy(s_days_left_layer);
+  menu_layer_destroy(s_home_menu_layer);
   text_layer_destroy(s_home_message_layer);
 }
 
@@ -431,11 +446,23 @@ static void copy_string(char *dest, size_t size, DictionaryIterator *iter, uint3
 static void receive_sprint(DictionaryIterator *iter) {
   copy_string(s_sprint_name, sizeof(s_sprint_name), iter, MESSAGE_KEY_SprintName);
   s_days_left = find_int(iter, MESSAGE_KEY_SprintDaysLeft);
-  s_category_counts[CategoryToDo] = find_int(iter, MESSAGE_KEY_CountToDo);
-  s_category_counts[CategoryInProgress] = find_int(iter, MESSAGE_KEY_CountInProgress);
-  s_category_counts[CategoryDone] = find_int(iter, MESSAGE_KEY_CountDone);
+  s_column_total = find_int(iter, MESSAGE_KEY_ColumnTotal);
+  s_column_count = 0;
   s_sprint_loaded = true;
   s_home_message[0] = '\0';
+}
+
+static void receive_column(DictionaryIterator *iter, int index) {
+  if (index < 0 || index >= MAX_COLUMNS || index >= s_column_total) {
+    return;
+  }
+  Column *column = &s_columns[index];
+  copy_string(column->name, sizeof(column->name), iter, MESSAGE_KEY_ColumnName);
+  column->issue_count = find_int(iter, MESSAGE_KEY_ColumnIssues);
+  column->category = find_int(iter, MESSAGE_KEY_ColumnCategory);
+  if (index >= s_column_count) {
+    s_column_count = index + 1;
+  }
 }
 
 static void receive_issue(DictionaryIterator *iter, int index) {
@@ -459,7 +486,8 @@ static void receive_issue(DictionaryIterator *iter, int index) {
 static void inbox_received_handler(DictionaryIterator *iter, void *context) {
   Tuple *error = dict_find(iter, MESSAGE_KEY_Error);
   Tuple *sprint = dict_find(iter, MESSAGE_KEY_SprintName);
-  Tuple *list = dict_find(iter, MESSAGE_KEY_ListCategory);
+  Tuple *column = dict_find(iter, MESSAGE_KEY_ColumnIndex);
+  Tuple *list = dict_find(iter, MESSAGE_KEY_ListColumn);
   Tuple *index = dict_find(iter, MESSAGE_KEY_IssueIndex);
   bool list_open = window_stack_contains_window(s_list_window);
 
@@ -471,7 +499,9 @@ static void inbox_received_handler(DictionaryIterator *iter, void *context) {
     // A reloaded sprint replaces any list taken from the old one.
     receive_sprint(iter);
     close_lists();
-  } else if (list && list_open && list->value->int32 == s_list_category) {
+  } else if (column) {
+    receive_column(iter, column->value->int32);
+  } else if (list && list_open && list->value->int32 == s_list_column) {
     s_list_total = find_int(iter, MESSAGE_KEY_ListCount);
     s_issue_count = 0;
   } else if (index && list_open && s_list_total >= 0) {

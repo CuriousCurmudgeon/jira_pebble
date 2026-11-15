@@ -28,11 +28,15 @@ function configUrl() {
 // The watch holds at most this many issues per list; see MAX_ISSUES in main.c.
 var MAX_ISSUES = 50;
 
+// The watch shows at most this many columns; see MAX_COLUMNS in main.c.
+var MAX_COLUMNS = 12;
+
 // The most sprint issues the phone loads from Jira.
 var MAX_SPRINT_ISSUES = 500;
 
 // Byte limits, including the terminating NUL, of the watch's string fields.
-var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32, sprint: 32 };
+var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32, sprint: 32,
+  column: 24 };
 
 // Matches the IssueCategory values in main.c.
 var CATEGORIES = { 'new': 0, 'indeterminate': 1, 'done': 2 };
@@ -123,73 +127,92 @@ function sendError(text) {
   sendAll([{ Error: fit(text, 128) }]);
 }
 
-// The sprint's issues, loaded when the app opens; null until they arrive.
-var sprintIssues = null;
-// A category the watch asked for before the issues arrived.
-var pendingCategory = null;
+// The board's columns, each with the sprint's issues in it, loaded when the
+// app opens; null until they arrive.
+var columns = null;
 
 function daysLeft(sprint) {
   var end = Date.parse(sprint.endDate);
   return isNaN(end) ? 0 : Math.ceil((end - Date.now()) / (24 * 60 * 60 * 1000));
 }
 
-function sprintMessage(sprint, issues) {
-  var counts = [0, 0, 0];
-  issues.forEach(function(issue) {
-    counts[categoryOf(issue)]++;
+// Sorts the issues into the board's columns. Like the board, it leaves out
+// issues whose status no column holds.
+function groupByColumn(boardColumns, issues) {
+  var columnOfStatus = {};
+  var grouped = boardColumns.map(function(column, index) {
+    column.statusIds.forEach(function(id) {
+      columnOfStatus[id] = index;
+    });
+    return { name: column.name, issues: [] };
   });
-  return {
-    SprintName: fit(sprint.name, LIMITS.sprint),
-    SprintDaysLeft: daysLeft(sprint),
-    CountToDo: counts[CATEGORIES['new']],
-    CountInProgress: counts[CATEGORIES['indeterminate']],
-    CountDone: counts[CATEGORIES['done']]
-  };
+  issues.forEach(function(issue) {
+    var status = issue.fields && issue.fields.status;
+    var index = status ? columnOfStatus[String(status.id)] : undefined;
+    if (index !== undefined) {
+      grouped[index].issues.push(issue);
+    }
+  });
+  return grouped;
 }
 
-function categoryMessages(category) {
-  var issues = sprintIssues.filter(function(issue) {
-    return categoryOf(issue) === category;
-  });
-  var shown = issues.slice(0, MAX_ISSUES);
-  return [{ ListCategory: category, ListCount: issues.length }]
-    .concat(shown.map(issueMessage));
+// The column's color on the watch: its issues' status category, or failing
+// that its place on the board.
+function columnCategory(column, index, count) {
+  if (column.issues.length > 0) {
+    return categoryOf(column.issues[0]);
+  }
+  if (index === 0) {
+    return CATEGORIES['new'];
+  }
+  return index === count - 1 ? CATEGORIES['done'] : CATEGORIES['indeterminate'];
+}
+
+function sprintMessages(sprint) {
+  return [{
+    SprintName: fit(sprint.name, LIMITS.sprint),
+    SprintDaysLeft: daysLeft(sprint),
+    ColumnTotal: columns.length
+  }].concat(columns.map(function(column, index) {
+    return {
+      ColumnIndex: index,
+      ColumnName: fit(column.name, LIMITS.column),
+      ColumnIssues: column.issues.length,
+      ColumnCategory: columnCategory(column, index, columns.length)
+    };
+  }));
+}
+
+function columnMessages(index) {
+  var issues = columns[index].issues;
+  return [{ ListColumn: index, ListCount: issues.length }]
+    .concat(issues.slice(0, MAX_ISSUES).map(issueMessage));
 }
 
 function refresh() {
-  sprintIssues = null;
+  columns = null;
   var current = settings.load();
   if (!settings.isComplete(current)) {
     sendError('Open the app settings on your phone to sign in and pick a board.');
     return;
   }
 
-  jira.getSprintIssues(current, current.board, MAX_SPRINT_ISSUES,
-    function(error, sprint, issues) {
+  jira.getSprint(current, current.board, MAX_SPRINT_ISSUES,
+    function(error, boardColumns, sprint, issues) {
       if (error) {
-        console.log('getSprintIssues failed: ' + error);
+        console.log('getSprint failed: ' + error);
         sendError(error);
         return;
       }
-      sprintIssues = issues || [];
-      var messages = [sprintMessage(sprint, sprintIssues)];
-      if (pendingCategory !== null) {
-        messages = messages.concat(categoryMessages(pendingCategory));
-        pendingCategory = null;
-      }
-      sendAll(messages);
+      columns = groupByColumn(boardColumns, issues || []).slice(0, MAX_COLUMNS);
+      sendAll(sprintMessages(sprint));
     });
 }
 
 Pebble.addEventListener('appmessage', function(e) {
-  var category = e.payload.RequestCategory;
-  if (category === undefined) {
-    return;
-  }
-  if (sprintIssues) {
-    sendAll(categoryMessages(category));
-  } else {
-    pendingCategory = category;
+  var index = e.payload.RequestColumn;
+  if (columns && index >= 0 && index < columns.length) {
+    sendAll(columnMessages(index));
   }
 });
 

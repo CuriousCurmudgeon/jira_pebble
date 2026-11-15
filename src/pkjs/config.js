@@ -37,7 +37,7 @@ module.exports = [
         "type": "input",
         "messageKey": "ApiToken",
         "label": "API token",
-        "description": "Create one with scopes at id.atlassian.com/manage-profile/security/api-tokens, with read:jira-work, read:jira-user, read:board-scope:jira-software, read:project:jira and read:sprint:jira-software. Tokens expire, so paste a new one here when it does.",
+        "description": "Create one with scopes at id.atlassian.com/manage-profile/security/api-tokens, with read:jira-work, read:jira-user, read:board-scope:jira-software, read:board-scope.admin:jira-software, read:project:jira and read:sprint:jira-software. Tokens expire, so paste a new one here when it does.",
         "attributes": {
           "type": "password",
           "autocapitalize": "off",
