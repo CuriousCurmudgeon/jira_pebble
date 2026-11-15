@@ -55,6 +55,7 @@
       "ColumnName",
       "ColumnIssues",
       "ColumnCategory",
+      "ColumnPoints",
       "RequestColumn",
       "ListColumn",
       "ListCount",

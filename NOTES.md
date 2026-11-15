@@ -58,11 +58,12 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
 ## UI design
 
 - **Home:** The header shows the sprint name on the left and the days left on the right, and turns red with two days
-  or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its issue count and a
-  stripe in its status category's color: gray for To Do, blue for In Progress, green for Done.
+  or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its story points, its
+  issue count and a stripe in its status category's color: gray for To Do, blue for In Progress, green for Done.
 - **Column:** The header shows the column name and its count, in the column's color. Each row has a stripe, red for
-  blocked or highest-priority issues, then a badge in the issue type's color, the key in bold with the assignee on the
-  right, and a summary of up to two lines.
+  blocked or highest-priority issues, then a badge in the issue type's color, the key in bold, the days in status
+  (such as "6d") and the assignee on the right, and a summary of up to two lines. An assignee whose name doesn't fit
+  is shortened to a first name and last initial, such as "Ada L.".
 - **Issue types:** Colored as Jira colors them: green for Story, red for Bug, blue for Task, light blue for Subtask,
   purple for Epic and gray for any other type.
 - **Issue view:** A colored status banner stays at the top. Below it, Up and Down scroll the key with the issue type in

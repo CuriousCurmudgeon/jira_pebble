@@ -36,6 +36,8 @@ typedef enum {
 // A column of the board. The name's size matches LIMITS in index.js.
 typedef struct {
   char name[24];
+  // The column's story points, as text; empty if the board has none.
+  char points[8];
   int issue_count;
   uint8_t category;
 } Column;
@@ -307,6 +309,18 @@ static int16_t list_get_cell_height(MenuLayer *menu_layer, MenuIndex *index, voi
   return ISSUE_ROW_HEIGHT;
 }
 
+// Shortens a name such as "Ada Lovelace" to "Ada L.". A single word is
+// left as it is.
+static void short_name(const char *name, char *text, size_t size) {
+  const char *last_space = strrchr(name, ' ');
+  if (!last_space || !last_space[1]) {
+    snprintf(text, size, "%s", name);
+    return;
+  }
+  int first_length = strcspn(name, " ");
+  snprintf(text, size, "%.*s %c.", first_length, name, last_space[1]);
+}
+
 static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index,
                           void *context) {
   const Issue *issue = &s_issues[index->row];
@@ -321,8 +335,8 @@ static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
   GFont key_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   GFont text_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
 
-  // A badge in the issue type's color, then the key, on the left of the first
-  // line, and the assignee on the right.
+  // A badge in the issue type's color, the key and the days in status on the
+  // left of the first line, and the assignee on the right.
   graphics_context_set_fill_color(ctx, kind_color(issue->kind));
   graphics_fill_rect(ctx, GRect(left, 6, BADGE_SIZE, BADGE_SIZE), 2, GCornersAll);
   if (highlighted) {
@@ -339,9 +353,36 @@ static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
   int key_width = graphics_text_layout_get_content_size(
       issue->key, key_font, key_frame, GTextOverflowModeTrailingEllipsis,
       GTextAlignmentLeft).w + ROW_PADDING;
+
+  if (issue->status_days >= 0) {
+    char days[8];
+    if (issue->status_days == 0) {
+      snprintf(days, sizeof(days), "<1d");
+    } else {
+      snprintf(days, sizeof(days), "%dd", issue->status_days);
+    }
+    GRect days_frame = GRect(key_left + key_width, -2, line_width - key_width, 22);
+    graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
+    graphics_draw_text(ctx, days, text_font, days_frame, GTextOverflowModeTrailingEllipsis,
+                       GTextAlignmentLeft, NULL);
+    key_width += graphics_text_layout_get_content_size(
+        days, text_font, days_frame, GTextOverflowModeTrailingEllipsis,
+        GTextAlignmentLeft).w + ROW_PADDING;
+  }
+
+  // The assignee's full name, or a short one if the full one doesn't fit.
+  const char *assignee = issue->assignee[0] ? issue->assignee : "Unassigned";
+  GRect assignee_frame = GRect(key_left + key_width, -2, line_width - key_width, 22);
+  char short_assignee[sizeof(issue->assignee)];
+  int full_width = graphics_text_layout_get_content_size(
+      assignee, text_font, GRect(0, 0, bounds.size.w * 2, 22), GTextOverflowModeWordWrap,
+      GTextAlignmentLeft).w;
+  if (full_width > assignee_frame.size.w) {
+    short_name(assignee, short_assignee, sizeof(short_assignee));
+    assignee = short_assignee;
+  }
   graphics_context_set_text_color(ctx, highlighted ? GColorLightGray : GColorDarkGray);
-  graphics_draw_text(ctx, issue->assignee[0] ? issue->assignee : "Unassigned", text_font,
-                     GRect(key_left + key_width, -2, line_width - key_width, 22),
+  graphics_draw_text(ctx, assignee, text_font, assignee_frame,
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 
   graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
@@ -449,21 +490,39 @@ static void home_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
   graphics_context_set_fill_color(ctx, category_color(column->category));
   graphics_fill_rect(ctx, GRect(0, 0, STRIPE_WIDTH, bounds.size.h), 0, GCornerNone);
 
+  bool highlighted = menu_cell_layer_is_highlighted(cell_layer);
   int left = STRIPE_WIDTH + ROW_PADDING;
   int width = bounds.size.w - left - ROW_PADDING;
-  int count_width = 36;
-  graphics_context_set_text_color(ctx, menu_cell_layer_is_highlighted(cell_layer)
-                                           ? GColorWhite
-                                           : GColorBlack);
-  graphics_draw_text(ctx, column->name, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-                     GRect(left, 3, width - count_width, 30),
-                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
+  // The issue count on the right, with the points to its left.
   char count[8];
   snprintf(count, sizeof(count), "%d", column->issue_count);
-  graphics_draw_text(ctx, count, fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD),
-                     GRect(left, 0, width, 32), GTextOverflowModeTrailingEllipsis,
+  GFont count_font = fonts_get_system_font(FONT_KEY_GOTHIC_28_BOLD);
+  GRect count_frame = GRect(left, 0, width, 32);
+  graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
+  graphics_draw_text(ctx, count, count_font, count_frame, GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentRight, NULL);
+  int right_width = graphics_text_layout_get_content_size(
+      count, count_font, count_frame, GTextOverflowModeTrailingEllipsis,
+      GTextAlignmentRight).w + ROW_PADDING;
+
+  if (column->points[0]) {
+    char points[16];
+    snprintf(points, sizeof(points), "%s pts", column->points);
+    GFont points_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
+    GRect points_frame = GRect(left, 8, width - right_width, 22);
+    graphics_context_set_text_color(ctx, highlighted ? GColorLightGray : GColorDarkGray);
+    graphics_draw_text(ctx, points, points_font, points_frame,
+                       GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
+    right_width += graphics_text_layout_get_content_size(
+        points, points_font, points_frame, GTextOverflowModeTrailingEllipsis,
+        GTextAlignmentRight).w + ROW_PADDING;
+  }
+
+  graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
+  graphics_draw_text(ctx, column->name, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
+                     GRect(left, 3, width - right_width, 30),
+                     GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   graphics_context_set_stroke_color(ctx, GColorLightGray);
   graphics_draw_line(ctx, GPoint(STRIPE_WIDTH, bounds.size.h - 1),
@@ -558,6 +617,7 @@ static void receive_column(DictionaryIterator *iter, int index) {
   copy_string(column->name, sizeof(column->name), iter, MESSAGE_KEY_ColumnName);
   column->issue_count = find_int(iter, MESSAGE_KEY_ColumnIssues);
   column->category = find_int(iter, MESSAGE_KEY_ColumnCategory);
+  copy_string(column->points, sizeof(column->points), iter, MESSAGE_KEY_ColumnPoints);
   if (index >= s_column_count) {
     s_column_count = index + 1;
   }

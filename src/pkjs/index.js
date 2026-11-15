@@ -109,13 +109,15 @@ function epicOf(fields) {
   return parentFields.summary || parent.key || '';
 }
 
-// Story points as text, such as "3" or "0.5"; empty if the issue has none.
-function pointsOf(fields, pointsField) {
-  var value = pointsField ? fields[pointsField] : null;
-  if (typeof value !== 'number') {
-    return '';
-  }
-  return String(Math.round(value * 10) / 10);
+// Story points as a number; null if the issue has none.
+function pointsValue(issue) {
+  var value = pointsField && issue.fields ? issue.fields[pointsField] : null;
+  return typeof value === 'number' ? value : null;
+}
+
+// Points as text, such as "3" or "0.5"; empty for null.
+function formatPoints(value) {
+  return value === null ? '' : String(Math.round(value * 10) / 10);
 }
 
 // When the issue last changed status. The changelog can leave out older
@@ -161,7 +163,7 @@ function issueMessage(issue, index) {
     IssueUrgent: isUrgent(fields) ? 1 : 0,
     IssueType: fit(fields.issuetype && fields.issuetype.name, LIMITS.type),
     IssueKind: kindOf(fields.issuetype),
-    IssuePoints: fit(pointsOf(fields, pointsField), LIMITS.points),
+    IssuePoints: fit(formatPoints(pointsValue(issue)), LIMITS.points),
     IssueEpic: fit(epicOf(fields), LIMITS.epic),
     IssueStatusDays: daysInStatus(issue)
   };
@@ -246,6 +248,17 @@ function columnCategory(column, index, count) {
   return index === count - 1 ? CATEGORIES['done'] : CATEGORIES['indeterminate'];
 }
 
+// The column's total story points as text; empty if the board has no points
+// field.
+function columnPoints(column) {
+  if (!pointsField) {
+    return '';
+  }
+  return formatPoints(column.issues.reduce(function(total, issue) {
+    return total + (pointsValue(issue) || 0);
+  }, 0));
+}
+
 function sprintMessages(sprint) {
   return [{
     SprintName: fit(sprint.name, LIMITS.sprint),
@@ -256,7 +269,8 @@ function sprintMessages(sprint) {
       ColumnIndex: index,
       ColumnName: fit(column.name, LIMITS.column),
       ColumnIssues: column.issues.length,
-      ColumnCategory: columnCategory(column, index, columns.length)
+      ColumnCategory: columnCategory(column, index, columns.length),
+      ColumnPoints: fit(columnPoints(column), LIMITS.points)
     };
   }));
 }
