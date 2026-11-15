@@ -17,7 +17,8 @@ module.exports = [
         "description": "For example, yourcompany.atlassian.net",
         "attributes": {
           "placeholder": "yourcompany.atlassian.net",
-          "type": "url",
+          "type": "text",
+          "inputmode": "url",
           "autocapitalize": "off",
           "autocorrect": "off"
         }
