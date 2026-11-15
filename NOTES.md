@@ -57,8 +57,9 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
 
 ## UI design
 
-- **Home:** The header shows the sprint name on the left and the days left on the right, and turns red with two days
-  or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its story points, its
+- **Home:** The header shows the sprint's done and total story points on the left (such as "9/82 pts done"), or the
+  sprint name if the board has no points, and the days left on the right. Only one sprint is active at a time, so the
+  name matters less than the points. The header turns red with two days or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its story points, its
   issue count and a stripe in its status category's color: gray for To Do, blue for In Progress, green for Done.
 - **Column:** The header shows the column name and its count, in the column's color. Each row has a stripe, red for
   blocked or highest-priority issues, then a badge in the issue type's color, the key in bold, the days in status

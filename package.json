@@ -50,6 +50,7 @@
       "Error",
       "SprintName",
       "SprintDaysLeft",
+      "SprintPoints",
       "ColumnTotal",
       "ColumnIndex",
       "ColumnName",

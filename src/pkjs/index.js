@@ -36,7 +36,7 @@ var MAX_SPRINT_ISSUES = 500;
 
 // Byte limits, including the terminating NUL, of the watch's string fields.
 var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32, sprint: 32,
-  column: 24, type: 16, points: 8, epic: 48 };
+  column: 24, type: 16, points: 8, epic: 48, sprintPoints: 24 };
 
 // Matches the IssueCategory values in main.c.
 var CATEGORIES = { 'new': 0, 'indeterminate': 1, 'done': 2 };
@@ -259,9 +259,30 @@ function columnPoints(column) {
   }, 0));
 }
 
+// The sprint's done and total story points, such as "9/82", counting only
+// issues on the board; empty if the board has no points field.
+function sprintPoints() {
+  if (!pointsField) {
+    return '';
+  }
+  var done = 0;
+  var total = 0;
+  columns.forEach(function(column) {
+    column.issues.forEach(function(issue) {
+      var points = pointsValue(issue) || 0;
+      total += points;
+      if (categoryOf(issue) === CATEGORIES['done']) {
+        done += points;
+      }
+    });
+  });
+  return formatPoints(done) + '/' + formatPoints(total);
+}
+
 function sprintMessages(sprint) {
   return [{
     SprintName: fit(sprint.name, LIMITS.sprint),
+    SprintPoints: fit(sprintPoints(), LIMITS.sprintPoints),
     SprintDaysLeft: daysLeft(sprint),
     ColumnTotal: columns.length
   }].concat(columns.map(function(column, index) {

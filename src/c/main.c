@@ -62,6 +62,8 @@ typedef struct {
 // The sprint, as the phone last sent it.
 static bool s_sprint_loaded;
 static char s_sprint_name[32];
+// The done and total story points, such as "9/82"; empty if the board has none.
+static char s_sprint_points[24];
 static int s_days_left;
 static Column s_columns[MAX_COLUMNS];
 // How many columns the board has, and how many of them have arrived.
@@ -82,6 +84,7 @@ static TextLayer *s_days_left_layer;
 static MenuLayer *s_home_menu_layer;
 static TextLayer *s_home_message_layer;
 static char s_days_left_text[24];
+static char s_sprint_points_text[40];
 static char s_home_message[128];
 
 static Window *s_list_window;
@@ -453,7 +456,17 @@ static void open_column(int column) {
 // Home window: the board's columns
 
 static void home_window_update(void) {
-  text_layer_set_text(s_sprint_name_layer, s_sprint_loaded ? s_sprint_name : "Sprint");
+  // The sprint's points take the place of its name, since only one sprint is
+  // active at a time. Boards without points show the name instead.
+  if (!s_sprint_loaded) {
+    text_layer_set_text(s_sprint_name_layer, "Sprint");
+  } else if (s_sprint_points[0]) {
+    snprintf(s_sprint_points_text, sizeof(s_sprint_points_text), "%s pts done",
+             s_sprint_points);
+    text_layer_set_text(s_sprint_name_layer, s_sprint_points_text);
+  } else {
+    text_layer_set_text(s_sprint_name_layer, s_sprint_name);
+  }
 
   if (s_days_left > 0) {
     snprintf(s_days_left_text, sizeof(s_days_left_text), "%dd left", s_days_left);
@@ -540,7 +553,8 @@ static void home_window_load(Window *window) {
   Layer *root = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(root);
 
-  // A colored bar, with the sprint name on its left and the days left on its right.
+  // A colored bar, with the sprint's points (or its name) on its left and the
+  // days left on its right.
   s_home_header_layer = add_header_layer(root, bounds);
 
   int days_width = 60;
@@ -602,6 +616,7 @@ static void copy_string(char *dest, size_t size, DictionaryIterator *iter, uint3
 
 static void receive_sprint(DictionaryIterator *iter) {
   copy_string(s_sprint_name, sizeof(s_sprint_name), iter, MESSAGE_KEY_SprintName);
+  copy_string(s_sprint_points, sizeof(s_sprint_points), iter, MESSAGE_KEY_SprintPoints);
   s_days_left = find_int(iter, MESSAGE_KEY_SprintDaysLeft);
   s_column_total = find_int(iter, MESSAGE_KEY_ColumnTotal);
   s_column_count = 0;
