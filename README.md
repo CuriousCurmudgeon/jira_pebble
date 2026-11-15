@@ -5,17 +5,19 @@ by the board's columns, on a **Pebble Time 2**.
 
 | Board columns | A column | An issue |
 | --- | --- | --- |
-| ![The home screen: the sprint name, the days left, and the board's columns with their issue counts](docs/screenshots/columns.png) | ![A column's issues, each with its key, assignee and summary](docs/screenshots/column.png) | ![An issue: its status, key, summary, priority and assignee](docs/screenshots/issue.png) |
+| ![The home screen: the sprint's points done and the days left, and the board's columns with their points and issue counts](docs/screenshots/columns.png) | ![A column's issues, each with its type, key, days in status, assignee and summary](docs/screenshots/column.png) | ![An issue: its status, key, type, summary, epic, points, days in status, priority and assignee](docs/screenshots/issue.png) |
 
 The screenshots use made-up data.
 
 ## What it does
 
-- **Home:** the sprint name and the days left, then each column of the board, in board order, with its number of
-  issues. The header turns red when two days or fewer are left.
-- **Column:** the column's issues in rank order, each with its key, its assignee and two lines of summary. A red
-  stripe marks blocked issues and the highest priorities.
-- **Issue:** the status, key, summary, priority and assignee.
+- **Home:** the sprint's story points done out of its total, and the days left, then each column of the board, in
+  board order, with its story points and its number of issues. The header turns red when two days or fewer are left.
+  Boards without story points show the sprint name instead.
+- **Column:** the column's issues in rank order, each with a badge in its issue type's color, its key, its days in the
+  current status, its assignee and two lines of summary. A red stripe marks blocked issues and the highest
+  priorities.
+- **Issue:** the status, key, issue type, summary, epic, story points, days in status, priority and assignee.
 
 The app only reads from Jira; it doesn't change issues.
 
