@@ -7,7 +7,7 @@
 
 #define HEADER_HEIGHT 26
 #define COLUMN_ROW_HEIGHT 40
-#define ISSUE_ROW_HEIGHT 46
+#define ISSUE_ROW_HEIGHT 62
 #define STRIPE_WIDTH 6
 #define ROW_PADDING 6
 #define BANNER_HEIGHT 36
@@ -233,21 +233,24 @@ static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
 
   int left = STRIPE_WIDTH + ROW_PADDING;
   int width = bounds.size.w - left - ROW_PADDING;
-  GFont small = fonts_get_system_font(FONT_KEY_GOTHIC_14);
+  GFont key_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
+  GFont text_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
 
   // The key on the left and the assignee on the right of the first line.
   graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
-  graphics_draw_text(ctx, issue->key, fonts_get_system_font(FONT_KEY_GOTHIC_14_BOLD),
-                     GRect(left, -1, width, 16), GTextOverflowModeTrailingEllipsis,
+  GRect key_frame = GRect(left, -2, width, 22);
+  graphics_draw_text(ctx, issue->key, key_font, key_frame, GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
-  int key_width = 68;
+  int key_width = graphics_text_layout_get_content_size(
+      issue->key, key_font, key_frame, GTextOverflowModeTrailingEllipsis,
+      GTextAlignmentLeft).w + ROW_PADDING;
   graphics_context_set_text_color(ctx, highlighted ? GColorLightGray : GColorDarkGray);
-  graphics_draw_text(ctx, issue->assignee[0] ? issue->assignee : "Unassigned", small,
-                     GRect(left + key_width, -1, width - key_width, 16),
+  graphics_draw_text(ctx, issue->assignee[0] ? issue->assignee : "Unassigned", text_font,
+                     GRect(left + key_width, -2, width - key_width, 22),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 
   graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
-  graphics_draw_text(ctx, issue->summary, small, GRect(left, 13, width, 32),
+  graphics_draw_text(ctx, issue->summary, text_font, GRect(left, 17, width, 42),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentLeft, NULL);
 
   // A hairline between rows.
