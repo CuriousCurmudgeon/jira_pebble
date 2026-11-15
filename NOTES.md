@@ -1,13 +1,14 @@
 # Pebble Jira app: context
 
-**Goal:** A Jira Cloud app for my **Pebble Time 2**, built mostly for fun. The project lives in `~/code/jira_pebble`.
+**Goal:** A Jira Cloud app for my **Pebble Time 2**, built mostly for fun, to review the current sprint's work from my
+wrist. The project lives in `~/code/jira_pebble`.
 
 ## Hardware: Pebble Time 2
 
 - A 200×228 color e-paper screen (64 colors) and a touchscreen.
 - Four buttons: Back, Up, Select, Down.
 - A microphone for dictation.
-- Build only for the Time 2 platform at first. Find its platform name in Core's SDK docs.
+- The SDK calls this platform `emery`. Build only for it for now.
 
 ## Architecture
 
@@ -17,51 +18,72 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
 
 - **Watch app (C):** The UI and the input only. It has no network access.
 - **PebbleKit JS (on the phone):** Calls Jira with `XMLHttpRequest`, so it uses the phone's TLS stack and needs no proxy.
-  It keeps only the key, a short summary, the status and the priority, then sends small AppMessage dictionaries to the
-  watch, one issue or a few fields at a time.
-- **Config page (Clay):** The site URL, the email and the API token. They're stored in PebbleKit JS `localStorage`.
-- **Auth:** Basic auth with `email:api_token`. Atlassian API tokens now expire, so the token must be easy to update in
-  the config page.
+  It loads the whole sprint, keeps it in memory, and sends the watch small AppMessage dictionaries: the sprint and its
+  columns first, then one column's issues when the watch asks for them, one issue per message.
+- **Config page (Clay):** The site URL, the email, the API token and the board. They're stored in PebbleKit JS
+  `localStorage` and never sent to the watch.
+- **Auth:** Basic auth with `email:api_token`, using a scoped API token. Atlassian API tokens expire, so the token must
+  be easy to update in the config page.
+- **Permissions:** SDK 4.44 builds apps that must declare their network access, so `package.json` lists `Internet` for
+  `atlassian.net` and `api.atlassian.com`.
 
 ## Jira API notes
 
-- **My queue:** `/rest/api/3/search/jql` with the JQL `assignee = currentUser() AND statusCategory != Done`. The old
-  `/search` endpoint is deprecated. Pass `fields=` and a small `maxResults`.
+- **Scoped tokens:** These only work through Atlassian's API gateway, at
+  `https://api.atlassian.com/ex/jira/{cloudId}/...`, not at `yourcompany.atlassian.net`. The phone gets the cloud ID
+  from `https://yourcompany.atlassian.net/_edge/tenant_info` (no auth needed) and caches it per site.
+- **Scopes:** `read:jira-work`, `read:jira-user`, `read:board-scope:jira-software`,
+  `read:board-scope.admin:jira-software`, `read:project:jira` and `read:sprint:jira-software`. The `.admin` one is for
+  the board configuration; the API docs ask only for permission to view the board.
+- **Board:** `/rest/agile/1.0/board?name=…`, falling back to `?projectKeyOrId=…&type=scrum`. The config page takes a
+  board name, a board ID or a project key. The board ID is cached.
+- **Columns:** `/rest/agile/1.0/board/{id}/configuration` lists the columns in board order, each with the IDs of the
+  statuses mapped to it. An issue whose status is in no column doesn't show on the board, so the app leaves it out too.
+- **Active sprint:** `/rest/agile/1.0/board/{id}/sprint?state=active`. The sprint's `endDate` gives the days left.
+- **Sprint issues:** `/rest/api/3/search/jql` with `sprint = {id} ORDER BY Rank ASC`. The old `/search` endpoint is
+  deprecated. Pass `fields=` and page with `nextPageToken`.
 - **Transitions:** `GET` and `POST /rest/api/3/issue/{key}/transitions`. Fetch them per issue, because workflows differ.
+  Jira doesn't say which transition is the "next" one.
 - **Comments:** In v3, comment bodies use Atlassian Document Format (ADF), so wrap plain text in a minimal ADF document.
   The v2 endpoints take plain strings instead.
 
 ## Constraints
 
-- A small app heap: hold about 20–25 issues on the watch and keep descriptions on the phone.
-- Small AppMessage buffers.
+- A small app heap: the watch holds at most 12 columns and 50 issues per column. The phone loads up to 500 sprint
+  issues and keeps descriptions to itself.
+- Small AppMessage buffers. The phone cuts each string to fit the watch's buffer, by UTF-8 bytes, with an ellipsis.
 - PebbleKit JS runs only while the app is open, so there's no background polling. Refresh when the app opens.
 - Text entry is limited to dictation and canned replies.
 
 ## UI design
 
-- **List:** A `MenuLayer` with about 5–6 rows. Each row has a stripe in the color of its status category, with red for
-  blocked or highest-priority issues. Below that come the key in bold and a summary of up to two lines. The header reads
-  "My queue · N".
-- **Issue view:** A colored status banner, then the summary, priority and assignee. An `ActionBarLayer` maps the
-  buttons:
-  - **Up:** Move to the next status.
-  - **Select:** Open a menu of all the transitions.
-  - **Down:** Add a comment, by dictation first and canned replies second ("On it", "Blocked", "Ready for review").
+- **Home:** The header shows the sprint name on the left and the days left on the right, and turns red with two days
+  or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its issue count and a
+  stripe in its status category's color: gray for To Do, blue for In Progress, green for Done.
+- **Column:** The header shows the column name and its count, in the column's color. Each row has a stripe, red for
+  blocked or highest-priority issues, then the key in bold with the assignee on the right, and a summary of up to two
+  lines.
+- **Issue view:** A colored status banner, then the key, the summary, the priority and the assignee.
 - **Touch:** Swiping and tapping are a supplement only, until I confirm the SDK supports touch.
-- **Glance:** "3 in progress · 1 blocked".
-- **Vibration:** A tap when the list holds an issue it didn't hold the last time the app opened.
+
+## Ideas, not built
+
+- **Acting on issues:** An `ActionBarLayer` in the issue view, with Up moving to the next status, Select opening a menu
+  of transitions, and Down adding a comment by dictation or canned reply ("On it", "Blocked", "Ready for review"). I'm
+  not sure these fit a sprint review, which is mostly reading.
+- **Glance:** A summary of the sprint, such as "3 in progress · 1 blocked".
+- **Vibration:** A tap when the sprint holds an issue it didn't hold the last time the app opened.
 - **Optional watchface:** The time, the number of issues in progress and the days left in the sprint, with an accent
   color that turns red near the end of the sprint.
 
-## Still to confirm in the current Core/Rebble docs
+## Still to confirm
 
-- How to install the SDK and use the emulator.
-- Whether the Core phone app supports PebbleKit JS and dictation.
+- Whether the Core phone app runs PebbleKit JS and dictation on a real phone. PebbleKit JS works in the emulator;
+  dictation is untried.
 - Whether the Time 2 SDK exposes the touchscreen.
 
-## First milestone
+## Emulator tips
 
-In the emulator, have PebbleKit JS call `GET /rest/api/3/myself` with the token, then show my display name on the
-watch. That proves the whole path from the watch through the phone to Jira. After that, scaffold the app, the JS client
-and the Clay config.
+- `pebble emu-app-config --emulator emery` opens the config page. The app must be installed and open first, and the
+  command must keep running until you press Save.
+- A fresh emulator has no apps, so run `pebble install --emulator emery` after starting one.
