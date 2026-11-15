@@ -3,23 +3,19 @@
 A Pebble watchapp for reviewing a Jira Cloud sprint from your wrist. It shows the active sprint of one board, grouped
 by the board's columns, on a **Pebble Time 2**.
 
-| Board columns | A column | An issue |
+| Board | Column | Issue |
 | --- | --- | --- |
-| ![The home screen: the sprint's points done and the days left, and the board's columns with their points and issue counts](docs/screenshots/columns.png) | ![A column's issues, each with its type, key, days in status, assignee and summary](docs/screenshots/column.png) | ![An issue: its status, key, type, summary, epic, points, days in status, priority and assignee](docs/screenshots/issue.png) |
-
-The screenshots use made-up data.
+| ![The sprint's points and the board's columns](docs/screenshots/columns.png) | ![A column's issues](docs/screenshots/column.png) | ![One issue's details](docs/screenshots/issue.png) |
 
 ## What it does
 
-- **Home:** the sprint's story points done out of its total, and the days left, then each column of the board, in
-  board order, with its story points and its number of issues. The header turns red when two days or fewer are left.
-  Boards without story points show the sprint name instead.
-- **Column:** the column's issues in rank order, each with a badge in its issue type's color, its key, its days in the
-  current status, its assignee and two lines of summary. A red stripe marks blocked issues and the highest
-  priorities.
-- **Issue:** the status, key, issue type, summary, epic, story points, days in status, priority and assignee.
+- **Board:** points done out of the sprint's total, days left, and each column with its points and issue count. The
+  header turns red with two days or fewer left.
+- **Column:** the issues in rank order, with the issue type's color, key, days in status, assignee and summary. A red
+  stripe marks blocked and highest-priority issues.
+- **Issue:** status, type, summary, epic, story points, days in status, priority and assignee.
 
-The app only reads from Jira; it doesn't change issues.
+The app is read-only.
 
 ## How it works
 
@@ -90,6 +86,5 @@ authentication, so use it only on a trusted network.
 
 ## License
 
-MIT; see [LICENSE](LICENSE). This doesn't cover `.claude/skills/pebble-watchface/`, which is copied from
-[coredevices/pebble-watchface-agent-skill](https://github.com/coredevices/pebble-watchface-agent-skill) and has no
-license of its own.
+MIT; see [LICENSE](LICENSE). `.claude/skills/pebble-watchface/` comes from
+[coredevices/pebble-watchface-agent-skill](https://github.com/coredevices/pebble-watchface-agent-skill).
