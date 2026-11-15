@@ -7,12 +7,13 @@ function load() {
   return {
     siteUrl: normalizeSiteUrl(stored.SiteUrl),
     email: (stored.Email || '').trim(),
-    apiToken: (stored.ApiToken || '').trim()
+    apiToken: (stored.ApiToken || '').trim(),
+    board: (stored.Board || '').trim()
   };
 }
 
 function isComplete(settings) {
-  return Boolean(settings.siteUrl && settings.email && settings.apiToken);
+  return Boolean(settings.siteUrl && settings.email && settings.apiToken && settings.board);
 }
 
 // Accepts "yourcompany", "yourcompany.atlassian.net" or a full URL.

@@ -37,9 +37,29 @@ module.exports = [
         "type": "input",
         "messageKey": "ApiToken",
         "label": "API token",
-        "description": "Create one with scopes at id.atlassian.com/manage-profile/security/api-tokens, with read:jira-work, write:jira-work and read:jira-user. Tokens expire, so paste a new one here when it does.",
+        "description": "Create one with scopes at id.atlassian.com/manage-profile/security/api-tokens, with read:jira-work, read:jira-user, read:board-scope:jira-software, read:project:jira and read:sprint:jira-software. Tokens expire, so paste a new one here when it does.",
         "attributes": {
           "type": "password",
+          "autocapitalize": "off",
+          "autocorrect": "off"
+        }
+      }
+    ]
+  },
+  {
+    "type": "section",
+    "items": [
+      {
+        "type": "heading",
+        "defaultValue": "Sprint"
+      },
+      {
+        "type": "input",
+        "messageKey": "Board",
+        "label": "Board",
+        "description": "The board whose active sprint to show: its name, its ID, or its project's key.",
+        "attributes": {
+          "placeholder": "ENG",
           "autocapitalize": "off",
           "autocorrect": "off"
         }

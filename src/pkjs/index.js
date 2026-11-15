@@ -25,11 +25,14 @@ function configUrl() {
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
 }
 
-// The watch holds at most this many issues; see MAX_ISSUES in main.c.
-var MAX_ISSUES = 25;
+// The watch holds at most this many issues per list; see MAX_ISSUES in main.c.
+var MAX_ISSUES = 50;
+
+// The most sprint issues the phone loads from Jira.
+var MAX_SPRINT_ISSUES = 500;
 
 // Byte limits, including the terminating NUL, of the watch's string fields.
-var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32 };
+var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32, sprint: 32 };
 
 // Matches the IssueCategory values in main.c.
 var CATEGORIES = { 'new': 0, 'indeterminate': 1, 'done': 2 };
@@ -64,55 +67,131 @@ function isUrgent(fields) {
   return /block/i.test(status) || /^(highest|blocker)$/i.test(priority);
 }
 
+function categoryOf(issue) {
+  var status = (issue.fields && issue.fields.status) || {};
+  var category = CATEGORIES[status.statusCategory && status.statusCategory.key];
+  return category === undefined ? CATEGORIES['new'] : category;
+}
+
 function issueMessage(issue, index) {
   var fields = issue.fields || {};
   var status = fields.status || {};
-  var category = CATEGORIES[status.statusCategory && status.statusCategory.key];
   return {
     IssueIndex: index,
     IssueKey: fit(issue.key, LIMITS.key),
     IssueSummary: fit(fields.summary, LIMITS.summary),
     IssueStatus: fit(status.name, LIMITS.status),
-    IssueCategory: category === undefined ? CATEGORIES['new'] : category,
+    IssueCategory: categoryOf(issue),
     IssuePriority: fit(fields.priority && fields.priority.name, LIMITS.priority),
     IssueAssignee: fit(fields.assignee && fields.assignee.displayName, LIMITS.assignee),
     IssueUrgent: isUrgent(fields) ? 1 : 0
   };
 }
 
-// AppMessage sends one message at a time, so send each after the last is acked.
+var SEND_RETRIES = 3;
+var RETRY_DELAY_MS = 200;
+
+// Bumped by each sendAll(), so a newer batch cancels the rest of an older one.
+var sendGeneration = 0;
+
+// AppMessage sends one message at a time, so send each after the last is
+// acked. A message can be refused while the watch is sending, so retry.
 function sendAll(messages) {
-  if (messages.length === 0) {
-    return;
+  var generation = ++sendGeneration;
+
+  function sendNext(index, retries) {
+    if (generation !== sendGeneration || index >= messages.length) {
+      return;
+    }
+    Pebble.sendAppMessage(messages[index], function() {
+      sendNext(index + 1, SEND_RETRIES);
+    }, function(error) {
+      if (retries > 0) {
+        setTimeout(function() {
+          sendNext(index, retries - 1);
+        }, RETRY_DELAY_MS);
+      } else {
+        console.log('AppMessage failed: ' + JSON.stringify(error));
+      }
+    });
   }
-  Pebble.sendAppMessage(messages[0], function() {
-    sendAll(messages.slice(1));
-  }, function(error) {
-    console.log('AppMessage failed: ' + JSON.stringify(error));
-  });
+
+  sendNext(0, SEND_RETRIES);
 }
 
 function sendError(text) {
   sendAll([{ Error: fit(text, 128) }]);
 }
 
+// The sprint's issues, loaded when the app opens; null until they arrive.
+var sprintIssues = null;
+// A category the watch asked for before the issues arrived.
+var pendingCategory = null;
+
+function daysLeft(sprint) {
+  var end = Date.parse(sprint.endDate);
+  return isNaN(end) ? 0 : Math.ceil((end - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+function sprintMessage(sprint, issues) {
+  var counts = [0, 0, 0];
+  issues.forEach(function(issue) {
+    counts[categoryOf(issue)]++;
+  });
+  return {
+    SprintName: fit(sprint.name, LIMITS.sprint),
+    SprintDaysLeft: daysLeft(sprint),
+    CountToDo: counts[CATEGORIES['new']],
+    CountInProgress: counts[CATEGORIES['indeterminate']],
+    CountDone: counts[CATEGORIES['done']]
+  };
+}
+
+function categoryMessages(category) {
+  var issues = sprintIssues.filter(function(issue) {
+    return categoryOf(issue) === category;
+  });
+  var shown = issues.slice(0, MAX_ISSUES);
+  return [{ ListCategory: category, ListCount: issues.length }]
+    .concat(shown.map(issueMessage));
+}
+
 function refresh() {
+  sprintIssues = null;
   var current = settings.load();
   if (!settings.isComplete(current)) {
-    sendError('Open the app settings on your phone to sign in.');
+    sendError('Open the app settings on your phone to sign in and pick a board.');
     return;
   }
 
-  jira.searchMyQueue(current, MAX_ISSUES, function(error, issues) {
-    if (error) {
-      console.log('searchMyQueue failed: ' + error);
-      sendError(error);
-      return;
-    }
-    issues = (issues || []).slice(0, MAX_ISSUES);
-    sendAll([{ QueueCount: issues.length }].concat(issues.map(issueMessage)));
-  });
+  jira.getSprintIssues(current, current.board, MAX_SPRINT_ISSUES,
+    function(error, sprint, issues) {
+      if (error) {
+        console.log('getSprintIssues failed: ' + error);
+        sendError(error);
+        return;
+      }
+      sprintIssues = issues || [];
+      var messages = [sprintMessage(sprint, sprintIssues)];
+      if (pendingCategory !== null) {
+        messages = messages.concat(categoryMessages(pendingCategory));
+        pendingCategory = null;
+      }
+      sendAll(messages);
+    });
 }
+
+Pebble.addEventListener('appmessage', function(e) {
+  var category = e.payload.RequestCategory;
+  if (category === undefined) {
+    return;
+  }
+  if (sprintIssues) {
+    sendAll(categoryMessages(category));
+  } else {
+    pendingCategory = category;
+  }
+});
 
 Pebble.addEventListener('ready', refresh);
 
