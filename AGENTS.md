@@ -8,7 +8,7 @@ before changing behavior.
 
 ## SDK Version and Platforms
 
-- The installed SDK is 4.33.1 (`pebble sdk list` shows the installed versions). The latest is 4.44.
+- The SDK is 4.44 (`pebble sdk list` shows the installed versions).
 - The app targets **emery (Pebble Time 2)** only: 200x228, 64 colors, rectangular. It's set in `targetPlatforms` in
   `package.json`. Add other platforms only when asked.
 - Alloy runs only on emery and gabbro. This project uses C.
