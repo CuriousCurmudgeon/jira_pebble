@@ -61,9 +61,17 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
   or fewer to go. Below it, a `MenuLayer` lists the board's columns in board order, each with its issue count and a
   stripe in its status category's color: gray for To Do, blue for In Progress, green for Done.
 - **Column:** The header shows the column name and its count, in the column's color. Each row has a stripe, red for
-  blocked or highest-priority issues, then the key in bold with the assignee on the right, and a summary of up to two
-  lines.
-- **Issue view:** A colored status banner, then the key, the summary, the priority and the assignee.
+  blocked or highest-priority issues, then a badge in the issue type's color, the key in bold with the assignee on the
+  right, and a summary of up to two lines.
+- **Issue types:** Colored as Jira colors them: green for Story, red for Bug, blue for Task, light blue for Subtask,
+  purple for Epic and gray for any other type.
+- **Issue view:** A colored status banner stays at the top. Below it, Up and Down scroll the key with the issue type in
+  its color, the summary, the epic in purple, the story points and days in the current status, the priority and the
+  assignee.
+- **Story points:** From the field the board's configuration names for estimation.
+- **Time in status:** The latest status change in the issue's changelog, or its status category change date if that's
+  later, because the search may leave out older changelog entries.
+- **Epic:** The issue's parent, when the parent is an epic. A subtask's parent is a story, so a subtask shows no epic.
 - **Touch:** Swiping and tapping are a supplement only, until I confirm the SDK supports touch.
 
 ## Ideas, not built

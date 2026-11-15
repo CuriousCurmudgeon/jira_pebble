@@ -10,6 +10,7 @@
 #define ISSUE_ROW_HEIGHT 62
 #define STRIPE_WIDTH 6
 #define ROW_PADDING 6
+#define BADGE_SIZE 10
 #define BANNER_HEIGHT 36
 #define MARGIN 8
 // The sprint's days left turn red at this many or fewer.
@@ -21,6 +22,16 @@ typedef enum {
   CategoryInProgress = 1,
   CategoryDone = 2,
 } IssueCategory;
+
+// Issue types, as index.js sorts them, each colored the way Jira colors it.
+typedef enum {
+  KindOther = 0,
+  KindStory = 1,
+  KindBug = 2,
+  KindTask = 3,
+  KindSubtask = 4,
+  KindEpic = 5,
+} IssueKind;
 
 // A column of the board. The name's size matches LIMITS in index.js.
 typedef struct {
@@ -36,7 +47,13 @@ typedef struct {
   char status[32];
   char priority[16];
   char assignee[32];
+  char type[16];
+  char points[8];
+  char epic[48];
+  // Whole days in the current status; -1 if unknown.
+  int16_t status_days;
   uint8_t category;
+  uint8_t kind;
   bool urgent;
 } Issue;
 
@@ -74,10 +91,14 @@ static char s_list_header_text[32];
 static Window *s_issue_window;
 static int s_issue_index;
 static TextLayer *s_banner_layer;
+static ScrollLayer *s_issue_scroll_layer;
 static TextLayer *s_key_layer;
+static TextLayer *s_type_layer;
 static TextLayer *s_summary_layer;
+static TextLayer *s_epic_layer;
 static TextLayer *s_details_layer;
-static char s_details_text[80];
+static char s_epic_text[56];
+static char s_details_text[128];
 
 static GColor category_color(int category) {
   switch (category) {
@@ -98,6 +119,17 @@ static GColor category_dark_color(int category) {
 
 static GColor stripe_color(const Issue *issue) {
   return issue->urgent ? GColorRed : category_color(issue->category);
+}
+
+static GColor kind_color(int kind) {
+  switch (kind) {
+    case KindStory: return GColorIslamicGreen;
+    case KindBug: return GColorRed;
+    case KindTask: return GColorBlueMoon;
+    case KindSubtask: return GColorVividCerulean;
+    case KindEpic: return GColorPurple;
+    default: return GColorDarkGray;
+  }
 }
 
 static GColor banner_color(const Issue *issue) {
@@ -133,6 +165,31 @@ static TextLayer *add_message_layer(Layer *parent, GRect bounds) {
 // ---------------------------------------------------------------------------
 // Issue window
 
+// Sizes a text layer to its text at the given top, and returns its bottom.
+static int stack_text_layer(TextLayer *layer, int top, int width) {
+  layer_set_frame(text_layer_get_layer(layer), GRect(MARGIN, top, width, 2000));
+  GSize size = text_layer_get_content_size(layer);
+  layer_set_frame(text_layer_get_layer(layer), GRect(MARGIN, top, width, size.h + 4));
+  return top + size.h + 4;
+}
+
+// The points and the time in status, such as "3 points · 6 days in status".
+static void format_progress(const Issue *issue, char *text, size_t size) {
+  char points[24] = "";
+  if (issue->points[0]) {
+    snprintf(points, sizeof(points), "%s %s", issue->points,
+             strcmp(issue->points, "1") == 0 ? "point" : "points");
+  }
+  char days[32] = "";
+  if (issue->status_days == 0) {
+    snprintf(days, sizeof(days), "Under a day in status");
+  } else if (issue->status_days > 0) {
+    snprintf(days, sizeof(days), "%d %s in status", issue->status_days,
+             issue->status_days == 1 ? "day" : "days");
+  }
+  snprintf(text, size, "%s%s%s", points, points[0] && days[0] ? " · " : "", days);
+}
+
 static void issue_window_update(void) {
   const Issue *issue = &s_issues[s_issue_index];
   Layer *root = window_get_root_layer(s_issue_window);
@@ -142,23 +199,38 @@ static void issue_window_update(void) {
   text_layer_set_background_color(s_banner_layer, banner_color(issue));
   text_layer_set_text(s_banner_layer, issue->status);
   text_layer_set_text(s_key_layer, issue->key);
+  text_layer_set_text_color(s_type_layer, kind_color(issue->kind));
+  text_layer_set_text(s_type_layer, issue->type);
   text_layer_set_text(s_summary_layer, issue->summary);
 
-  // Size the summary to its text so the details sit right below it.
-  int summary_top = BANNER_HEIGHT + 28;
-  layer_set_frame(text_layer_get_layer(s_summary_layer),
-                  GRect(MARGIN, summary_top, width, bounds.size.h));
-  GSize summary_size = text_layer_get_content_size(s_summary_layer);
-  int details_top = summary_top + summary_size.h + 8;
-  layer_set_frame(text_layer_get_layer(s_summary_layer),
-                  GRect(MARGIN, summary_top, width, summary_size.h + 4));
+  // Stack the summary, the epic and the details, each sized to its text.
+  int bottom = stack_text_layer(s_summary_layer, 26, width);
+  layer_set_hidden(text_layer_get_layer(s_epic_layer), !issue->epic[0]);
+  if (issue->epic[0]) {
+    snprintf(s_epic_text, sizeof(s_epic_text), "Epic: %s", issue->epic);
+    text_layer_set_text(s_epic_layer, s_epic_text);
+    bottom = stack_text_layer(s_epic_layer, bottom + 4, width);
+  }
 
-  snprintf(s_details_text, sizeof(s_details_text), "Priority: %s\n%s",
-           issue->priority[0] ? issue->priority : "None",
+  char progress[64];
+  format_progress(issue, progress, sizeof(progress));
+  snprintf(s_details_text, sizeof(s_details_text), "%s%sPriority: %s\n%s", progress,
+           progress[0] ? "\n" : "", issue->priority[0] ? issue->priority : "None",
            issue->assignee[0] ? issue->assignee : "Unassigned");
   text_layer_set_text(s_details_layer, s_details_text);
-  layer_set_frame(text_layer_get_layer(s_details_layer),
-                  GRect(MARGIN, details_top, width, bounds.size.h - details_top));
+  bottom = stack_text_layer(s_details_layer, bottom + 4, width);
+
+  scroll_layer_set_content_size(s_issue_scroll_layer, GSize(bounds.size.w, bottom + MARGIN));
+  scroll_layer_set_content_offset(s_issue_scroll_layer, GPointZero, false);
+}
+
+static TextLayer *add_issue_text_layer(GRect frame, const char *font_key) {
+  TextLayer *layer = text_layer_create(frame);
+  text_layer_set_background_color(layer, GColorClear);
+  text_layer_set_font(layer, fonts_get_system_font(font_key));
+  text_layer_set_overflow_mode(layer, GTextOverflowModeWordWrap);
+  scroll_layer_add_child(s_issue_scroll_layer, text_layer_get_layer(layer));
+  return layer;
 }
 
 static void issue_window_load(Window *window) {
@@ -171,13 +243,23 @@ static void issue_window_load(Window *window) {
   text_layer_set_text_color(s_banner_layer, GColorWhite);
   text_layer_set_text_alignment(s_banner_layer, GTextAlignmentCenter);
 
-  s_key_layer = add_text_layer(root, GRect(MARGIN, BANNER_HEIGHT + 2, width, 26),
-                               FONT_KEY_GOTHIC_18_BOLD);
-  text_layer_set_text_color(s_key_layer, GColorDarkGray);
+  // Everything below the banner scrolls with Up and Down.
+  s_issue_scroll_layer = scroll_layer_create(
+      GRect(0, BANNER_HEIGHT, bounds.size.w, bounds.size.h - BANNER_HEIGHT));
+  scroll_layer_set_shadow_hidden(s_issue_scroll_layer, true);
+  scroll_layer_set_click_config_onto_window(s_issue_scroll_layer, window);
+  layer_add_child(root, scroll_layer_get_layer(s_issue_scroll_layer));
 
-  s_summary_layer = add_text_layer(root, GRect(MARGIN, BANNER_HEIGHT + 28, width, 0),
-                                   FONT_KEY_GOTHIC_24_BOLD);
-  s_details_layer = add_text_layer(root, GRect(MARGIN, 0, width, 0), FONT_KEY_GOTHIC_18);
+  // The key on the left and the issue type, in its color, on the right.
+  s_key_layer = add_issue_text_layer(GRect(MARGIN, 2, width, 24), FONT_KEY_GOTHIC_18_BOLD);
+  text_layer_set_text_color(s_key_layer, GColorDarkGray);
+  s_type_layer = add_issue_text_layer(GRect(MARGIN, 2, width, 24), FONT_KEY_GOTHIC_18_BOLD);
+  text_layer_set_text_alignment(s_type_layer, GTextAlignmentRight);
+
+  s_summary_layer = add_issue_text_layer(GRect(MARGIN, 0, width, 0), FONT_KEY_GOTHIC_24_BOLD);
+  s_epic_layer = add_issue_text_layer(GRect(MARGIN, 0, width, 0), FONT_KEY_GOTHIC_18_BOLD);
+  text_layer_set_text_color(s_epic_layer, GColorPurple);
+  s_details_layer = add_issue_text_layer(GRect(MARGIN, 0, width, 0), FONT_KEY_GOTHIC_18);
   text_layer_set_text_color(s_details_layer, GColorDarkGray);
 
   issue_window_update();
@@ -186,8 +268,11 @@ static void issue_window_load(Window *window) {
 static void issue_window_unload(Window *window) {
   text_layer_destroy(s_banner_layer);
   text_layer_destroy(s_key_layer);
+  text_layer_destroy(s_type_layer);
   text_layer_destroy(s_summary_layer);
+  text_layer_destroy(s_epic_layer);
   text_layer_destroy(s_details_layer);
+  scroll_layer_destroy(s_issue_scroll_layer);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,9 +321,19 @@ static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
   GFont key_font = fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD);
   GFont text_font = fonts_get_system_font(FONT_KEY_GOTHIC_18);
 
-  // The key on the left and the assignee on the right of the first line.
+  // A badge in the issue type's color, then the key, on the left of the first
+  // line, and the assignee on the right.
+  graphics_context_set_fill_color(ctx, kind_color(issue->kind));
+  graphics_fill_rect(ctx, GRect(left, 6, BADGE_SIZE, BADGE_SIZE), 2, GCornersAll);
+  if (highlighted) {
+    graphics_context_set_stroke_color(ctx, GColorWhite);
+    graphics_draw_round_rect(ctx, GRect(left, 6, BADGE_SIZE, BADGE_SIZE), 2);
+  }
+  int key_left = left + BADGE_SIZE + 4;
+  int line_width = width - BADGE_SIZE - 4;
+
   graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
-  GRect key_frame = GRect(left, -2, width, 22);
+  GRect key_frame = GRect(key_left, -2, line_width, 22);
   graphics_draw_text(ctx, issue->key, key_font, key_frame, GTextOverflowModeTrailingEllipsis,
                      GTextAlignmentLeft, NULL);
   int key_width = graphics_text_layout_get_content_size(
@@ -246,7 +341,7 @@ static void list_draw_row(GContext *ctx, const Layer *cell_layer, MenuIndex *ind
       GTextAlignmentLeft).w + ROW_PADDING;
   graphics_context_set_text_color(ctx, highlighted ? GColorLightGray : GColorDarkGray);
   graphics_draw_text(ctx, issue->assignee[0] ? issue->assignee : "Unassigned", text_font,
-                     GRect(left + key_width, -2, width - key_width, 22),
+                     GRect(key_left + key_width, -2, line_width - key_width, 22),
                      GTextOverflowModeTrailingEllipsis, GTextAlignmentRight, NULL);
 
   graphics_context_set_text_color(ctx, highlighted ? GColorWhite : GColorBlack);
@@ -480,6 +575,12 @@ static void receive_issue(DictionaryIterator *iter, int index) {
   copy_string(issue->assignee, sizeof(issue->assignee), iter, MESSAGE_KEY_IssueAssignee);
   issue->category = find_int(iter, MESSAGE_KEY_IssueCategory);
   issue->urgent = find_int(iter, MESSAGE_KEY_IssueUrgent) != 0;
+  copy_string(issue->type, sizeof(issue->type), iter, MESSAGE_KEY_IssueType);
+  copy_string(issue->points, sizeof(issue->points), iter, MESSAGE_KEY_IssuePoints);
+  copy_string(issue->epic, sizeof(issue->epic), iter, MESSAGE_KEY_IssueEpic);
+  issue->kind = find_int(iter, MESSAGE_KEY_IssueKind);
+  Tuple *days = dict_find(iter, MESSAGE_KEY_IssueStatusDays);
+  issue->status_days = days ? days->value->int32 : -1;
 
   if (index >= s_issue_count) {
     s_issue_count = index + 1;
@@ -521,7 +622,8 @@ static void inbox_dropped_handler(AppMessageResult reason, void *context) {
 static void init(void) {
   app_message_register_inbox_received(inbox_received_handler);
   app_message_register_inbox_dropped(inbox_dropped_handler);
-  app_message_open(512, 64);
+  // An issue message, with every string at its longest, is about 460 bytes.
+  app_message_open(768, 64);
 
   s_issue_window = window_create();
   window_set_window_handlers(s_issue_window, (WindowHandlers) {

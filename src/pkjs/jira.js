@@ -163,11 +163,13 @@ function getActiveSprint(settings, boardId, callback) {
 var SEARCH_PAGE_SIZE = 100;
 
 // Calls back with up to maxIssues issues, following nextPageToken across pages.
+// Each issue has its changelog, for the time of its last status change.
 function searchAll(settings, jql, fields, maxIssues, callback) {
   var issues = [];
 
   function fetchPage(pageToken) {
-    var params = { jql: jql, fields: fields, maxResults: SEARCH_PAGE_SIZE };
+    var params = { jql: jql, fields: fields, expand: 'changelog',
+      maxResults: SEARCH_PAGE_SIZE };
     if (pageToken) {
       params.nextPageToken = pageToken;
     }
@@ -189,7 +191,8 @@ function searchAll(settings, jql, fields, maxIssues, callback) {
 }
 
 // Calls back with the board's columns in order, each with a name and the IDs
-// of the statuses mapped to it.
+// of the statuses mapped to it, and the ID of the board's estimation field
+// (its story points), or null if the board has none.
 function getColumns(settings, boardId, callback) {
   var path = '/rest/agile/1.0/board/' + boardId + '/configuration';
   request(settings, 'GET', path, function(error, data) {
@@ -198,6 +201,9 @@ function getColumns(settings, boardId, callback) {
       return;
     }
     var columns = (data && data.columnConfig && data.columnConfig.columns) || [];
+    var estimation = data && data.estimation;
+    var pointsField = (estimation && estimation.type === 'field' && estimation.field &&
+      estimation.field.fieldId) || null;
     callback(null, columns.map(function(column) {
       return {
         name: column.name,
@@ -205,19 +211,19 @@ function getColumns(settings, boardId, callback) {
           return String(status.id);
         })
       };
-    }));
+    }), pointsField);
   });
 }
 
-// Calls back with the board's columns, its active sprint and the sprint's
-// issues in rank order.
+// Calls back with the board's columns, its active sprint, the sprint's issues
+// in rank order and the ID of the story points field (or null).
 function getSprint(settings, board, maxIssues, callback) {
   getBoardId(settings, board, function(error, boardId) {
     if (error) {
       callback(error);
       return;
     }
-    getColumns(settings, boardId, function(error, columns) {
+    getColumns(settings, boardId, function(error, columns, pointsField) {
       if (error) {
         callback(error);
         return;
@@ -227,9 +233,14 @@ function getSprint(settings, board, maxIssues, callback) {
           callback(error || 'No active sprint');
           return;
         }
-        searchAll(settings, 'sprint = ' + sprint.id + ' ORDER BY Rank ASC',
-          'summary,status,priority,assignee', maxIssues, function(error, issues) {
-            callback(error, columns, sprint, issues);
+        var fields = ['summary', 'status', 'priority', 'assignee', 'issuetype', 'parent',
+          'created', 'statuscategorychangedate'];
+        if (pointsField) {
+          fields.push(pointsField);
+        }
+        searchAll(settings, 'sprint = ' + sprint.id + ' ORDER BY Rank ASC', fields.join(','),
+          maxIssues, function(error, issues) {
+            callback(error, columns, sprint, issues, pointsField);
           });
       });
     });

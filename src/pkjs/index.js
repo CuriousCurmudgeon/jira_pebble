@@ -36,7 +36,7 @@ var MAX_SPRINT_ISSUES = 500;
 
 // Byte limits, including the terminating NUL, of the watch's string fields.
 var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32, sprint: 32,
-  column: 24 };
+  column: 24, type: 16, points: 8, epic: 48 };
 
 // Matches the IssueCategory values in main.c.
 var CATEGORIES = { 'new': 0, 'indeterminate': 1, 'done': 2 };
@@ -77,6 +77,76 @@ function categoryOf(issue) {
   return category === undefined ? CATEGORIES['new'] : category;
 }
 
+// Matches the IssueKind values in main.c, which color each type the way Jira
+// does.
+var KINDS = { other: 0, story: 1, bug: 2, task: 3, subtask: 4, epic: 5 };
+
+function kindOf(type) {
+  var name = (type && type.name) || '';
+  if (type && type.subtask) {
+    return KINDS.subtask;
+  }
+  if (/bug/i.test(name)) {
+    return KINDS.bug;
+  }
+  if (/story/i.test(name)) {
+    return KINDS.story;
+  }
+  if (/epic/i.test(name) || (type && type.hierarchyLevel === 1)) {
+    return KINDS.epic;
+  }
+  return /task/i.test(name) ? KINDS.task : KINDS.other;
+}
+
+// The issue's epic: its parent, when the parent is an epic. A subtask's
+// parent is a story, so a subtask shows none.
+function epicOf(fields) {
+  var parent = fields.parent;
+  var parentFields = (parent && parent.fields) || {};
+  if (!parent || kindOf(parentFields.issuetype) !== KINDS.epic) {
+    return '';
+  }
+  return parentFields.summary || parent.key || '';
+}
+
+// Story points as text, such as "3" or "0.5"; empty if the issue has none.
+function pointsOf(fields, pointsField) {
+  var value = pointsField ? fields[pointsField] : null;
+  if (typeof value !== 'number') {
+    return '';
+  }
+  return String(Math.round(value * 10) / 10);
+}
+
+// When the issue last changed status. The changelog can leave out older
+// entries, but a status category change is also a status change, so the
+// later of the two is never too early.
+function statusSince(issue) {
+  var fields = issue.fields || {};
+  var times = [Date.parse(fields.statuscategorychangedate), Date.parse(fields.created)];
+  var histories = (issue.changelog && issue.changelog.histories) || [];
+  histories.forEach(function(history) {
+    var changesStatus = (history.items || []).some(function(item) {
+      return item.field === 'status';
+    });
+    if (changesStatus) {
+      times.push(Date.parse(history.created));
+    }
+  });
+  times = times.filter(function(time) {
+    return !isNaN(time);
+  });
+  return times.length ? Math.max.apply(null, times) : NaN;
+}
+
+var DAY_MS = 24 * 60 * 60 * 1000;
+
+// Whole days in the current status, or -1 if unknown.
+function daysInStatus(issue) {
+  var since = statusSince(issue);
+  return isNaN(since) ? -1 : Math.max(0, Math.floor((Date.now() - since) / DAY_MS));
+}
+
 function issueMessage(issue, index) {
   var fields = issue.fields || {};
   var status = fields.status || {};
@@ -88,7 +158,12 @@ function issueMessage(issue, index) {
     IssueCategory: categoryOf(issue),
     IssuePriority: fit(fields.priority && fields.priority.name, LIMITS.priority),
     IssueAssignee: fit(fields.assignee && fields.assignee.displayName, LIMITS.assignee),
-    IssueUrgent: isUrgent(fields) ? 1 : 0
+    IssueUrgent: isUrgent(fields) ? 1 : 0,
+    IssueType: fit(fields.issuetype && fields.issuetype.name, LIMITS.type),
+    IssueKind: kindOf(fields.issuetype),
+    IssuePoints: fit(pointsOf(fields, pointsField), LIMITS.points),
+    IssueEpic: fit(epicOf(fields), LIMITS.epic),
+    IssueStatusDays: daysInStatus(issue)
   };
 }
 
@@ -131,9 +206,12 @@ function sendError(text) {
 // app opens; null until they arrive.
 var columns = null;
 
+// The board's story points field, or null if it has none.
+var pointsField = null;
+
 function daysLeft(sprint) {
   var end = Date.parse(sprint.endDate);
-  return isNaN(end) ? 0 : Math.ceil((end - Date.now()) / (24 * 60 * 60 * 1000));
+  return isNaN(end) ? 0 : Math.ceil((end - Date.now()) / DAY_MS);
 }
 
 // Sorts the issues into the board's columns. Like the board, it leaves out
@@ -198,12 +276,13 @@ function refresh() {
   }
 
   jira.getSprint(current, current.board, MAX_SPRINT_ISSUES,
-    function(error, boardColumns, sprint, issues) {
+    function(error, boardColumns, sprint, issues, estimationField) {
       if (error) {
         console.log('getSprint failed: ' + error);
         sendError(error);
         return;
       }
+      pointsField = estimationField;
       columns = groupByColumn(boardColumns, issues || []).slice(0, MAX_COLUMNS);
       sendAll(sprintMessages(sprint));
     });

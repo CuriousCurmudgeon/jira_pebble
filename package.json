@@ -65,7 +65,12 @@
       "IssueCategory",
       "IssuePriority",
       "IssueAssignee",
-      "IssueUrgent"
+      "IssueUrgent",
+      "IssueType",
+      "IssueKind",
+      "IssuePoints",
+      "IssueEpic",
+      "IssueStatusDays"
     ],
     "resources": {
       "media": []
