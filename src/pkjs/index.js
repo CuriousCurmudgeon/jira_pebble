@@ -25,26 +25,92 @@ function configUrl() {
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
 }
 
-function send(message) {
-  Pebble.sendAppMessage(message, null, function(error) {
+// The watch holds at most this many issues; see MAX_ISSUES in main.c.
+var MAX_ISSUES = 25;
+
+// Byte limits, including the terminating NUL, of the watch's string fields.
+var LIMITS = { key: 16, summary: 160, status: 32, priority: 16, assignee: 32 };
+
+// Matches the IssueCategory values in main.c.
+var CATEGORIES = { 'new': 0, 'indeterminate': 1, 'done': 2 };
+
+function utf8Length(text) {
+  return unescape(encodeURIComponent(text)).length;
+}
+
+// Truncates text, with an ellipsis, so its UTF-8 encoding plus a NUL fits in
+// maxBytes. Cuts between code points, so a surrogate pair is never split.
+function fit(text, maxBytes) {
+  text = text || '';
+  if (utf8Length(text) < maxBytes) {
+    return text;
+  }
+  var chars = Array.from(text);
+  var budget = maxBytes - 1 - 3; // The ellipsis takes 3 bytes.
+  var out = '';
+  for (var i = 0; i < chars.length; i++) {
+    if (utf8Length(out + chars[i]) > budget) {
+      break;
+    }
+    out += chars[i];
+  }
+  return out + '\u2026';
+}
+
+// Blocked issues and the top priorities get a red stripe on the watch.
+function isUrgent(fields) {
+  var status = (fields.status && fields.status.name) || '';
+  var priority = (fields.priority && fields.priority.name) || '';
+  return /block/i.test(status) || /^(highest|blocker)$/i.test(priority);
+}
+
+function issueMessage(issue, index) {
+  var fields = issue.fields || {};
+  var status = fields.status || {};
+  var category = CATEGORIES[status.statusCategory && status.statusCategory.key];
+  return {
+    IssueIndex: index,
+    IssueKey: fit(issue.key, LIMITS.key),
+    IssueSummary: fit(fields.summary, LIMITS.summary),
+    IssueStatus: fit(status.name, LIMITS.status),
+    IssueCategory: category === undefined ? CATEGORIES['new'] : category,
+    IssuePriority: fit(fields.priority && fields.priority.name, LIMITS.priority),
+    IssueAssignee: fit(fields.assignee && fields.assignee.displayName, LIMITS.assignee),
+    IssueUrgent: isUrgent(fields) ? 1 : 0
+  };
+}
+
+// AppMessage sends one message at a time, so send each after the last is acked.
+function sendAll(messages) {
+  if (messages.length === 0) {
+    return;
+  }
+  Pebble.sendAppMessage(messages[0], function() {
+    sendAll(messages.slice(1));
+  }, function(error) {
     console.log('AppMessage failed: ' + JSON.stringify(error));
   });
+}
+
+function sendError(text) {
+  sendAll([{ Error: fit(text, 128) }]);
 }
 
 function refresh() {
   var current = settings.load();
   if (!settings.isComplete(current)) {
-    send({ Error: 'Open the app settings on your phone to sign in.' });
+    sendError('Open the app settings on your phone to sign in.');
     return;
   }
 
-  jira.getMyself(current, function(error, user) {
+  jira.searchMyQueue(current, MAX_ISSUES, function(error, issues) {
     if (error) {
-      console.log('getMyself failed: ' + error);
-      send({ Error: error });
-    } else {
-      send({ DisplayName: user.displayName });
+      console.log('searchMyQueue failed: ' + error);
+      sendError(error);
+      return;
     }
+    issues = (issues || []).slice(0, MAX_ISSUES);
+    sendAll([{ QueueCount: issues.length }].concat(issues.map(issueMessage)));
   });
 }
 

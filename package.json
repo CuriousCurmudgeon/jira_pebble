@@ -20,12 +20,42 @@
     "capabilities": [
       "configurable"
     ],
+    "usesPermissions": [
+      {
+        "name": "Internet",
+        "parameters": {
+          "domains": [
+            "atlassian.net"
+          ]
+        },
+        "reason": "To find your Jira site",
+        "required": true
+      },
+      {
+        "name": "Internet",
+        "parameters": {
+          "domains": [
+            "api.atlassian.com"
+          ]
+        },
+        "reason": "To load your Jira issues",
+        "required": true
+      }
+    ],
     "watchapp": {
       "watchface": false
     },
     "messageKeys": [
-      "DisplayName",
-      "Error"
+      "Error",
+      "QueueCount",
+      "IssueIndex",
+      "IssueKey",
+      "IssueSummary",
+      "IssueStatus",
+      "IssueCategory",
+      "IssuePriority",
+      "IssueAssignee",
+      "IssueUrgent"
     ],
     "resources": {
       "media": []
