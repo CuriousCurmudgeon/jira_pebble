@@ -78,8 +78,7 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
 
 ## Still to confirm
 
-- Whether the Core phone app runs PebbleKit JS and dictation on a real phone. PebbleKit JS works in the emulator;
-  dictation is untried.
+- Whether dictation works. PebbleKit JS runs on a real phone with the Core app; dictation is untried.
 - Whether the Time 2 SDK exposes the touchscreen.
 
 ## Emulator tips
@@ -87,3 +86,12 @@ Watch (C app)  ←Bluetooth/AppMessage→  Phone (PebbleKit JS)  ←HTTPS→  Ji
 - `pebble emu-app-config --emulator emery` opens the config page. The app must be installed and open first, and the
   command must keep running until you press Save.
 - A fresh emulator has no apps, so run `pebble install --emulator emery` after starting one.
+
+## Installing on the watch
+
+- In the Pebble app on the phone, open the watch's ⋯ menu in the *Devices* tab and turn on *Dev Connection*.
+- Run `pebble login` once, then `pebble install --cloudpebble`. Or, on the same Wi-Fi, turn on *Use LAN developer
+  connection* under *Settings → Phone → Connectivity* and run `pebble install --phone <IP>`. The LAN connection has no
+  authentication, so use it only on a trusted network.
+- Allow the Internet permissions when the phone asks.
+- The phone keeps its own settings, apart from the emulator's. Enter them through the app's gear in the Pebble app.
